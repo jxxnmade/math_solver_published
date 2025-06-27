@@ -1,0 +1,5 @@
+Version 1.0.1
+Everything works but animation is chopped
+Required to open application with ".bat" files
+
+Updates soon, good luck

@@ -1,11 +1,8 @@
 # math_solver_published
 Python-Based Math Solver
 
-Version 1.0.0
-Windows installer is broken
-Integral solver with LaTeX is broken
-Inconsistent UI
-Looks better on mac but compiled for Windows (???)
+Version 1.0.1
+Everything works but animation is chopped
 Required to open application with ".bat" files
 
 Install instructions

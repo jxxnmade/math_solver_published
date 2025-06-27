@@ -19,7 +19,6 @@ from PyQt5.QtGui import (QPainter, QBrush, QColor, QFont, QTextCursor,
                          QTextCharFormat, QTextDocument, QPalette)
 from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, QPoint, QTimer, QEasingCurve, QUrl, pyqtSignal
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
-from PyQt5.QtWebChannel import QWebChannel
 
 class MathDisplayWidget(QWidget):
     """Widget to display mathematical expressions using matplotlib"""
@@ -69,18 +68,6 @@ class MathDisplayWidget(QWidget):
         self.figure.clear()
         self.canvas.draw()
 
-class JavaScriptBridge(QWidget):
-    """Bridge for communication between Python and JavaScript"""
-    
-    mathChanged = pyqtSignal(str, str)  # latex, plain_text
-    
-    def __init__(self):
-        super().__init__()
-        
-    def update_math(self, latex, plain_text):
-        """Called from JavaScript when math content changes"""
-        self.mathChanged.emit(latex, plain_text)
-
 class MathQuillWidget(QWidget):
     """Widget that provides MathQuill input via QWebEngineView"""
     
@@ -96,12 +83,12 @@ class MathQuillWidget(QWidget):
         self.web_view = QWebEngineView(self)
         self.web_view.setFixedHeight(60)
         
-        # Set up the web channel for JavaScript communication
-        self.channel = QWebChannel(self)
-        self.bridge = JavaScriptBridge()
-        self.bridge.mathChanged.connect(self._on_math_changed)
-        self.channel.registerObject("bridge", self.bridge)
-        self.web_view.page().setWebChannel(self.channel)
+        # Enable console message logging
+        page = self.web_view.page()
+        page.javaScriptConsoleMessage = self.js_console_message
+        
+        # Intercept JavaScript calls
+        page.urlChanged.connect(self._handle_url_change)
         
         # Layout
         layout = QVBoxLayout()
@@ -111,6 +98,51 @@ class MathQuillWidget(QWidget):
         
         # Load the HTML content
         self._load_mathquill_html()
+        
+        # Wait for page to load
+        self.web_view.loadFinished.connect(self._on_page_loaded)
+        
+        # Set up timer for polling
+        self.update_timer = QTimer()
+        self.update_timer.timeout.connect(self._poll_for_updates)
+        self.update_timer.setInterval(200)  # Check every 200ms
+        
+    def _on_page_loaded(self, ok):
+        """Called when the web page has finished loading"""
+        if ok:
+            print("MathQuill page loaded successfully")
+            # Start polling for updates
+            self.update_timer.start()
+        else:
+            print("ERROR: MathQuill page failed to load")
+    
+    def _handle_url_change(self, url):
+        """Handle URL changes (not used in this approach)"""
+        pass
+    
+    def _poll_for_updates(self):
+        """Poll JavaScript for content updates"""
+        self.web_view.page().runJavaScript("getLatex();", self._handle_latex_result)
+        self.web_view.page().runJavaScript("getText();", self._handle_text_result)
+    
+    def _handle_latex_result(self, latex):
+        """Handle LaTeX result from JavaScript"""
+        if latex != self.current_latex:
+            print(f"LaTeX changed: '{latex}'")
+            self.current_latex = latex
+            # Get text as well
+            self.web_view.page().runJavaScript("getText();", lambda text: self._handle_content_change(latex, text))
+    
+    def _handle_text_result(self, text):
+        """Handle text result from JavaScript"""
+        self.current_plain_text = text
+    
+    def _handle_content_change(self, latex, text):
+        """Handle both latex and text change"""
+        print(f"Content changed - latex: '{latex}', text: '{text}'")
+        self.current_latex = latex
+        self.current_plain_text = text
+        self.mathChanged.emit(latex, text)
         
     def _load_mathquill_html(self):
         """Load the MathQuill HTML content"""
@@ -183,28 +215,39 @@ class MathQuillWidget(QWidget):
         .mq-math-mode .mq-sqrt-prefix {{
             border-color: white;
         }}
+        
+        /* Placeholder styling */
+        .mq-placeholder {{
+            color: #888 !important;
+            opacity: 1 !important;
+        }}
+        
+        .mq-empty.mq-hasCursor {{
+            background: transparent;
+        }}
     </style>
 </head>
 <body>
-    <div id="math-field">{self.placeholder}</div>
+    <span id="math-field"></span>
     
     <!-- MathQuill JavaScript -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathquill/0.10.1/mathquill.min.js"></script>
-    <script src="qrc:///qtwebchannel/qwebchannel.js"></script>
     
     <script>
         var MQ = MathQuill.getInterface(2);
         var mathField;
-        var bridge;
+        var lastLatex = '';
+        var lastText = '';
         
-        // Initialize when Qt WebChannel is ready
-        new QWebChannel(qt.webChannelTransport, function(channel) {{
-            bridge = channel.objects.bridge;
+        // Initialize MathQuill immediately
+        $(document).ready(function() {{
+            console.log('Document ready, initializing MathQuill...');
             initializeMathQuill();
         }});
         
         function initializeMathQuill() {{
+            console.log('Initializing MathQuill...');
             var mathFieldSpan = document.getElementById('math-field');
             
             mathField = MQ.MathField(mathFieldSpan, {{
@@ -217,24 +260,31 @@ class MathQuillWidget(QWidget):
                 autoSubscriptNumerals: true,
                 autoCommands: 'pi theta sqrt sum int infinity',
                 autoOperatorNames: 'sin cos tan sec csc cot ln log exp arcsin arccos arctan',
+                placeholder: '{self.placeholder}',
                 
                 handlers: {{
                     edit: function() {{
                         var latex = mathField.latex();
                         var text = mathField.text();
                         
-                        // Send to Python
-                        if (bridge && bridge.update_math) {{
-                            bridge.update_math(latex, text);
+                        // Only update if content actually changed
+                        if (latex !== lastLatex || text !== lastText) {{
+                            lastLatex = latex;
+                            lastText = text;
+                            console.log('MathQuill edit event - latex:', latex, 'text:', text);
+                            
+                            // Use window method to communicate with Python
+                            window.updateMath(latex, text);
                         }}
                     }},
                     
                     enter: function() {{
-                        // Handle enter key if needed
                         return false;
                     }}
                 }}
             }});
+            
+            console.log('MathQuill initialized successfully');
             
             // Set initial focus
             mathField.focus();
@@ -260,6 +310,12 @@ class MathQuillWidget(QWidget):
                 }}
             }});
         }}
+        
+        // Global function for Python communication
+        window.updateMath = function(latex, text) {{
+            console.log('Calling window.updateMath with:', latex, text);
+            // This will be intercepted by Python
+        }};
         
         // Function to set content from Python
         function setLatex(latex) {{
@@ -290,8 +346,13 @@ class MathQuillWidget(QWidget):
         
         self.web_view.setHtml(html_content)
     
+    def js_console_message(self, level, message, line, source):
+        """Handle JavaScript console messages"""
+        print(f"JS Console [{level}]: {message} (line {line})")
+    
     def _on_math_changed(self, latex, plain_text):
         """Handle math content changes from JavaScript"""
+        print(f"Python received: latex='{latex}', plain_text='{plain_text}'")  # Debug
         self.current_latex = latex
         self.current_plain_text = plain_text
         self.mathChanged.emit(latex, plain_text)
@@ -306,50 +367,66 @@ class MathQuillWidget(QWidget):
     
     def get_raw_expression(self):
         """Get raw expression for SymPy parsing (converts LaTeX to SymPy-compatible format)"""
-        latex = self.current_latex
-        if not latex:
+        latex_expr = self.current_latex
+        if not latex_expr:
             return ""
+        
+        print(f"Converting LaTeX to raw expression: '{latex_expr}'")  # Debug
+        
+        # Handle empty braces first (common issue)
+        latex_expr = re.sub(r'\^?\{\s*\}', '', latex_expr)  # Remove empty braces like ^{ }
+        latex_expr = re.sub(r'\^?\{\}', '', latex_expr)     # Remove empty braces like ^{}
+        
+        # Handle \left and \right parentheses
+        latex_expr = re.sub(r'\\left\(', '(', latex_expr)
+        latex_expr = re.sub(r'\\right\)', ')', latex_expr)
+        latex_expr = re.sub(r'\\left\[', '[', latex_expr)
+        latex_expr = re.sub(r'\\right\]', ']', latex_expr)
+        latex_expr = re.sub(r'\\left\{', '{', latex_expr)
+        latex_expr = re.sub(r'\\right\}', '}', latex_expr)
+        
+        # Handle trigonometric functions BEFORE processing fractions
+        latex_expr = re.sub(r'\\sin', 'sin', latex_expr)
+        latex_expr = re.sub(r'\\cos', 'cos', latex_expr)
+        latex_expr = re.sub(r'\\tan', 'tan', latex_expr)
+        latex_expr = re.sub(r'\\sec', 'sec', latex_expr)
+        latex_expr = re.sub(r'\\csc', 'csc', latex_expr)
+        latex_expr = re.sub(r'\\cot', 'cot', latex_expr)
+        
+        # Handle logarithms
+        latex_expr = re.sub(r'\\ln', 'ln', latex_expr)
+        latex_expr = re.sub(r'\\log', 'log', latex_expr)
+        
+        # Handle other functions
+        latex_expr = re.sub(r'\\exp', 'exp', latex_expr)
+        
+        # Handle constants
+        latex_expr = re.sub(r'\\pi', 'pi', latex_expr)
+        latex_expr = re.sub(r'\\infty', 'infinity', latex_expr)
         
         # Convert LaTeX to SymPy-compatible format
         # Handle fractions
-        latex = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1)/(\2)', latex)
+        latex_expr = re.sub(r'\\frac\{([^}]+)\}\{([^}]+)\}', r'(\1)/(\2)', latex_expr)
         
-        # Handle superscripts
-        latex = re.sub(r'\^?\{([^}]+)\}', r'^(\1)', latex)
-        latex = re.sub(r'\^([a-zA-Z0-9])', r'^\1', latex)
+        # Handle superscripts with braces
+        latex_expr = re.sub(r'\^?\{([^}]+)\}', r'^(\1)', latex_expr)
+        # Handle simple superscripts
+        latex_expr = re.sub(r'\^([a-zA-Z0-9])', r'^\1', latex_expr)
         
         # Handle square roots
-        latex = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\1)', latex)
-        latex = re.sub(r'\\sqrt\[([^]]+)\]\{([^}]+)\}', r'(\2)^(1/\1)', latex)
-        
-        # Handle trigonometric functions
-        latex = re.sub(r'\\sin', 'sin', latex)
-        latex = re.sub(r'\\cos', 'cos', latex)
-        latex = re.sub(r'\\tan', 'tan', latex)
-        latex = re.sub(r'\\sec', 'sec', latex)
-        latex = re.sub(r'\\csc', 'csc', latex)
-        latex = re.sub(r'\\cot', 'cot', latex)
-        
-        # Handle logarithms
-        latex = re.sub(r'\\ln', 'ln', latex)
-        latex = re.sub(r'\\log', 'log', latex)
-        
-        # Handle other functions
-        latex = re.sub(r'\\exp', 'exp', latex)
-        
-        # Handle constants
-        latex = re.sub(r'\\pi', 'pi', latex)
-        latex = re.sub(r'\\infty', 'infinity', latex)
+        latex_expr = re.sub(r'\\sqrt\{([^}]+)\}', r'sqrt(\1)', latex_expr)
+        latex_expr = re.sub(r'\\sqrt\[([^]]+)\]\{([^}]+)\}', r'(\2)^(1/\1)', latex_expr)
         
         # Handle multiplication
-        latex = re.sub(r'\\cdot', '*', latex)
-        latex = re.sub(r'\\times', '*', latex)
+        latex_expr = re.sub(r'\\cdot', '*', latex_expr)
+        latex_expr = re.sub(r'\\times', '*', latex_expr)
         
         # Remove any remaining backslashes and braces for simple expressions
-        latex = re.sub(r'\\([a-zA-Z]+)', r'\1', latex)
-        latex = latex.replace('{', '').replace('}', '')
+        latex_expr = re.sub(r'\\([a-zA-Z]+)', r'\1', latex_expr)
+        latex_expr = latex_expr.replace('{', '').replace('}', '')
         
-        return latex
+        print(f"Converted to raw expression: '{latex_expr}'")  # Debug
+        return latex_expr
     
     def set_latex(self, latex):
         """Set the LaTeX content"""
@@ -358,6 +435,11 @@ class MathQuillWidget(QWidget):
     def clear(self):
         """Clear the content"""
         self.web_view.page().runJavaScript("clear();")
+    
+    def stop_timer(self):
+        """Stop the update timer when widget is destroyed"""
+        if hasattr(self, 'update_timer'):
+            self.update_timer.stop()
 
 class IntegrationWindow(QWidget):
     def __init__(self):
@@ -374,11 +456,14 @@ class IntegrationWindow(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)  # Add text anti-aliasing
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)  # Smooth transforms
         brush = QBrush(QColor("#252525"))
         rect = QRectF(0, 0, self.width(), self.height())
         painter.setBrush(brush)
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(rect, 100, 100)
+        # Remove rounded corners by using drawRect instead of drawRoundedRect
+        painter.drawRect(rect)
 
     def initUI(self):
         # Create scroll area for content
@@ -418,22 +503,28 @@ class IntegrationWindow(QWidget):
         # Position scroll area
         scroll_area.setGeometry(0, 0, self.width(), self.height())
 
-        # Add Home button in the top right
+        # Add Home button in the top right - Fixed sizing
         self.home_button = QPushButton("Home", self)
-        self.home_button.setFont(QFont("Arial", 16, QFont.Bold))
+        # Create font with anti-aliasing hints
+        button_font = QFont("Arial", 16, QFont.Bold)
+        button_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.home_button.setFont(button_font)
         self.home_button.setStyleSheet("""
             QPushButton {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 8px;
-                padding: 6px 18px;
+                border-radius: 0px;  /* Remove rounded corners */
+                padding: 8px 12px;   /* Reduced padding */
+                text-align: center;
             }
             QPushButton:hover {
                 background-color: #555;
             }
         """)
-        self.home_button.setFixedSize(90, 38)
+        # Auto-size button to fit text properly
+        self.home_button.adjustSize()
+        self.home_button.setMinimumWidth(80)  # Ensure minimum width
         self.home_button.raise_()
         self.home_button.move(self.width() - self.home_button.width() - 20, 20)
         self.home_button.show()
@@ -462,17 +553,20 @@ class IntegrationWindow(QWidget):
         
         type_label = QLabel("Integration Type:", self)
         type_font = QFont("Arial", 24, QFont.Bold)
+        type_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
         type_label.setFont(type_font)
         type_label.setStyleSheet("color: white; background: transparent;")
         
         self.type_combo = QComboBox(self)
-        self.type_combo.setFont(QFont("Arial", 20, QFont.Bold))
+        combo_font = QFont("Arial", 20, QFont.Bold)
+        combo_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        self.type_combo.setFont(combo_font)
         self.type_combo.setStyleSheet("""
             QComboBox {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 8px;
+                border-radius: 0px;  /* Remove rounded corners */
                 padding: 6px 18px;
                 min-width: 120px;
                 font-weight: bold;
@@ -533,7 +627,9 @@ class IntegrationWindow(QWidget):
         self.clear_integration_content()
         
         message_label = QLabel("Select integration type")
-        message_label.setFont(QFont("Arial", 28, QFont.Bold))
+        message_font = QFont("Arial", 28, QFont.Bold)
+        message_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        message_label.setFont(message_font)
         message_label.setStyleSheet("color: white; background: transparent;")
         message_label.setAlignment(Qt.AlignCenter)
         
@@ -550,19 +646,24 @@ class IntegrationWindow(QWidget):
         
         # Integral symbol
         integral_symbol = QLabel("∫")
-        integral_symbol.setFont(QFont("Times New Roman", 48, QFont.Bold))
+        integral_font = QFont("Times New Roman", 48, QFont.Bold)
+        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        integral_symbol.setFont(integral_font)
         integral_symbol.setStyleSheet("color: white; background: transparent;")
         
         # Function input with MathQuill
         self.function_input = MathQuillWidget(self.integration_container, "Enter function (e.g., x^2, sin(x), e^x)")
         self.function_input.setFixedWidth(350)
         
-        # Connect to calculation
+        # Connect to calculation with debug
         self.function_input.mathChanged.connect(self.calculate_indefinite_integral)
+        print("Connected indefinite integral calculation")  # Debug
         
         # dx label
         dx_label = QLabel("dx")
-        dx_label.setFont(QFont("Times New Roman", 24, QFont.Bold))
+        dx_font = QFont("Times New Roman", 24, QFont.Bold)
+        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        dx_label.setFont(dx_font)
         dx_label.setStyleSheet("color: white; background: transparent;")
         
         integral_layout.addWidget(integral_symbol)
@@ -589,7 +690,9 @@ class IntegrationWindow(QWidget):
         
         # Method label
         self.method_label = QLabel("")
-        self.method_label.setFont(QFont("Arial", 16, QFont.Bold))
+        method_font = QFont("Arial", 16, QFont.Bold)
+        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        self.method_label.setFont(method_font)
         self.method_label.setStyleSheet("color: #87CEEB; background: transparent; margin: 10px;")
         self.method_label.setAlignment(Qt.AlignCenter)
         self.method_label.setWordWrap(True)
@@ -615,16 +718,20 @@ class IntegrationWindow(QWidget):
         # Lower bound
         lower_layout = QHBoxLayout()
         lower_label = QLabel("Lower bound:")
-        lower_label.setFont(QFont("Arial", 16, QFont.Bold))
+        lower_font = QFont("Arial", 16, QFont.Bold)
+        lower_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        lower_label.setFont(lower_font)
         lower_label.setStyleSheet("color: white; background: transparent;")
         self.lower_bound_input = QLineEdit()
-        self.lower_bound_input.setFont(QFont("Arial", 16))
+        bounds_font = QFont("Arial", 16)
+        bounds_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        self.lower_bound_input.setFont(bounds_font)
         self.lower_bound_input.setStyleSheet("""
             QLineEdit {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 4px;
+                border-radius: 0px;  /* Remove rounded corners */
                 padding: 4px 8px;
                 max-width: 80px;
             }
@@ -636,16 +743,18 @@ class IntegrationWindow(QWidget):
         # Upper bound
         upper_layout = QHBoxLayout()
         upper_label = QLabel("Upper bound:")
-        upper_label.setFont(QFont("Arial", 16, QFont.Bold))
+        upper_font = QFont("Arial", 16, QFont.Bold)
+        upper_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        upper_label.setFont(upper_font)
         upper_label.setStyleSheet("color: white; background: transparent;")
         self.upper_bound_input = QLineEdit()
-        self.upper_bound_input.setFont(QFont("Arial", 16))
+        self.upper_bound_input.setFont(bounds_font)
         self.upper_bound_input.setStyleSheet("""
             QLineEdit {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 4px;
+                border-radius: 0px;  /* Remove rounded corners */
                 padding: 4px 8px;
                 max-width: 80px;
             }
@@ -665,17 +774,22 @@ class IntegrationWindow(QWidget):
         
         # Integral symbol
         integral_symbol = QLabel("∫")
-        integral_symbol.setFont(QFont("Times New Roman", 48, QFont.Bold))
+        integral_font = QFont("Times New Roman", 48, QFont.Bold)
+        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        integral_symbol.setFont(integral_font)
         integral_symbol.setStyleSheet("color: white; background: transparent;")
         
         # Function input with MathQuill
         self.definite_function_input = MathQuillWidget(self.integration_container, "Enter function (e.g., x^2, sin(x), e^x)")
         self.definite_function_input.setFixedWidth(350)
         self.definite_function_input.mathChanged.connect(self.calculate_definite_integral)
+        print("Connected definite integral calculation")  # Debug
         
         # dx label
         dx_label = QLabel("dx")
-        dx_label.setFont(QFont("Times New Roman", 24, QFont.Bold))
+        dx_font = QFont("Times New Roman", 24, QFont.Bold)
+        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        dx_label.setFont(dx_font)
         dx_label.setStyleSheet("color: white; background: transparent;")
         
         main_integral_layout.addWidget(integral_symbol)
@@ -703,7 +817,9 @@ class IntegrationWindow(QWidget):
         
         # Method label for definite
         self.definite_method_label = QLabel("")
-        self.definite_method_label.setFont(QFont("Arial", 16, QFont.Bold))
+        method_font = QFont("Arial", 16, QFont.Bold)
+        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        self.definite_method_label.setFont(method_font)
         self.definite_method_label.setStyleSheet("color: #87CEEB; background: transparent; margin: 10px;")
         self.definite_method_label.setAlignment(Qt.AlignCenter)
         self.definite_method_label.setWordWrap(True)
@@ -848,6 +964,10 @@ class IntegrationWindow(QWidget):
 
     def parse_function(self, function_text):
         """Parse function text with support for both e^x and exp(x) notation and implicit multiplication"""
+        # Skip empty or whitespace-only expressions
+        if not function_text or not function_text.strip():
+            raise ValueError("Empty function expression")
+            
         # First handle implicit multiplication using the parsing method
         function_text = self.add_implicit_multiplication_for_parsing(function_text)
         
@@ -859,6 +979,12 @@ class IntegrationWindow(QWidget):
         function_text_sympy = re.sub(r'\be\*\*\(([^)]+)\)', r'exp(\1)', function_text_sympy)
         function_text_sympy = re.sub(r'\be\*\*([a-zA-Z0-9_]+)', r'exp(\1)', function_text_sympy)
         
+        # Check if we have any remaining problematic patterns
+        if '(' in function_text_sympy and ')' not in function_text_sympy:
+            raise ValueError("Unmatched parentheses")
+        if ')' in function_text_sympy and '(' not in function_text_sympy:
+            raise ValueError("Unmatched parentheses")
+            
         return sympify(function_text_sympy)
 
     def add_implicit_multiplication_for_parsing(self, text):
@@ -899,31 +1025,44 @@ class IntegrationWindow(QWidget):
         
         return text
 
-    def calculate_indefinite_integral(self, latex, plain_text):
+    def calculate_indefinite_integral(self, latex_expr, plain_text):
         """Calculate and display indefinite integral"""
+        print(f"calculate_indefinite_integral called with latex='{latex_expr}', plain_text='{plain_text}'")  # Debug
         try:
             function_text = self.function_input.get_raw_expression().strip()
-            if not function_text:
+            print(f"Raw expression: '{function_text}'")  # Debug
+            if not function_text or function_text.isspace():
                 self.antiderivative_display.clear_display()
                 self.method_label.setText("")
                 return
             
+            # Skip problematic intermediate states
+            if '(' in function_text and ')' not in function_text:
+                print("Skipping incomplete expression with unmatched parentheses")
+                return
+            if function_text.endswith('(') or function_text.endswith('^'):
+                print("Skipping incomplete expression")
+                return
+                
             x = symbols('x')
             
             # Parse the function with enhanced e^x support
             expr = self.parse_function(function_text)
+            print(f"Parsed expression: {expr}")  # Debug
             
             # Calculate the integral
             result = integrate(expr, x)
+            print(f"Integration result: {result}")  # Debug
             
             # Simplify the result
             result = simplify(result)
+            print(f"Simplified result: {result}")  # Debug
             
             # Determine integration method
             method = self.determine_integration_method(expr, result)
             
             # Display result using LaTeX with proper multiplication formatting
-            result_latex = latex(result)
+            result_latex = latex(result)  # This now works because latex_expr parameter renamed
             # Replace * with \cdot for better mathematical notation
             result_latex = result_latex.replace('*', '\\cdot')
             # Also handle any x symbols that might appear as multiplication
@@ -934,17 +1073,21 @@ class IntegrationWindow(QWidget):
             self.method_label.setText(f"Method: {method}")
             
         except Exception as e:
+            print(f"Error in calculate_indefinite_integral: {e}")  # Debug
             self.antiderivative_display.display_math("Invalid \\ function \\ or \\ unable \\ to \\ integrate", color='#FF6B6B', fontsize=16)
             self.method_label.setText("")
 
     def calculate_definite_integral(self, *args):
         """Calculate and display definite integral"""
+        print(f"calculate_definite_integral called")  # Debug
         try:
             function_text = self.definite_function_input.get_raw_expression().strip()
             lower_text = self.lower_bound_input.text().strip()
             upper_text = self.upper_bound_input.text().strip()
             
-            if not function_text:
+            print(f"Definite integral - function: '{function_text}', lower: '{lower_text}', upper: '{upper_text}'")  # Debug
+            
+            if not function_text or function_text.isspace():
                 self.definite_result_display.clear_display()
                 self.definite_method_label.setText("")
                 return
@@ -954,6 +1097,14 @@ class IntegrationWindow(QWidget):
                 self.definite_method_label.setText("")
                 return
             
+            # Skip problematic intermediate states
+            if '(' in function_text and ')' not in function_text:
+                print("Skipping incomplete expression with unmatched parentheses")
+                return
+            if function_text.endswith('(') or function_text.endswith('^'):
+                print("Skipping incomplete expression")
+                return
+                
             x = symbols('x')
             
             # Parse the function with enhanced e^x support
@@ -961,17 +1112,21 @@ class IntegrationWindow(QWidget):
             lower_bound = sympify(lower_text)
             upper_bound = sympify(upper_text)
             
+            print(f"Parsed - expr: {expr}, lower: {lower_bound}, upper: {upper_bound}")  # Debug
+            
             # Calculate the definite integral
             result = integrate(expr, (x, lower_bound, upper_bound))
+            print(f"Definite integration result: {result}")  # Debug
             
             # Simplify the result
             result = simplify(result)
+            print(f"Simplified definite result: {result}")  # Debug
             
             # Determine integration method
             method = self.determine_integration_method(expr, result)
             
             # Display result using LaTeX with proper multiplication formatting
-            result_latex = latex(result)
+            result_latex = latex(result)  # Now safe from parameter conflict
             # Replace * with \cdot for better mathematical notation
             result_latex = result_latex.replace('*', '\\cdot')
             # Also handle any x symbols that might appear as multiplication
@@ -982,6 +1137,7 @@ class IntegrationWindow(QWidget):
             self.definite_method_label.setText(f"Method: {method}")
             
         except Exception as e:
+            print(f"Error in calculate_definite_integral: {e}")  # Debug
             self.definite_result_display.display_math("Invalid \\ function, \\ bounds, \\ or \\ unable \\ to \\ integrate", color='#FF6B6B', fontsize=14)
             self.definite_method_label.setText("")
 

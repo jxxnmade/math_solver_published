@@ -8,13 +8,103 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QComboB
                              QListView, QLineEdit, QGraphicsOpacityEffect, QHBoxLayout, 
                              QScrollArea, QPushButton)
 from PyQt5.QtGui import QPainter, QBrush, QColor, QFont, QIntValidator
-from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, QPoint, QTimer, QEasingCurve
+from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, QPoint, QTimer, QEasingCurve, QUrl, pyqtSignal
+from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 import subprocess
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 import matplotlib
 matplotlib.use('Qt5Agg')
+
+class MathQuillWidget(QWidget):
+    """Widget that provides MathQuill input via QWebEngineView for equation display"""
+    
+    def __init__(self, parent=None, equation_latex=""):
+        super().__init__(parent)
+        self.equation_latex = equation_latex
+        
+        # Create the web engine view
+        self.web_view = QWebEngineView(self)
+        self.web_view.setFixedHeight(60)
+        
+        # Layout
+        layout = QVBoxLayout()
+        layout.addWidget(self.web_view)
+        layout.setContentsMargins(0, 0, 0, 0)
+        self.setLayout(layout)
+        
+        # Load the HTML content
+        self._load_mathquill_html()
+        
+    def _load_mathquill_html(self):
+        """Load the MathQuill HTML content for display only"""
+        html_content = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>MathQuill Display</title>
+    
+    <!-- MathQuill CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/mathquill/0.10.1/mathquill.css" />
+    
+    <style>
+        body {{
+            margin: 0;
+            padding: 10px;
+            background-color: #252525;
+            font-family: 'Times New Roman', serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 40px;
+            overflow: hidden;
+        }}
+        
+        #math-display {{
+            color: white;
+            font-size: 32px;
+            background: transparent;
+            border: none;
+        }}
+        
+        .mq-math-mode {{
+            color: white;
+        }}
+        
+        .mq-math-mode .mq-binary-operator,
+        .mq-math-mode .mq-operator-name,
+        .mq-math-mode .mq-text-mode {{
+            color: white;
+        }}
+    </style>
+</head>
+<body>
+    <span id="math-display"></span>
+    
+    <!-- MathQuill JavaScript -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathquill/0.10.1/mathquill.min.js"></script>
+    
+    <script>
+        var MQ = MathQuill.getInterface(2);
+        
+        $(document).ready(function() {{
+            var mathDisplay = MQ.StaticMath(document.getElementById('math-display'));
+            mathDisplay.latex('{self.equation_latex}');
+        }});
+    </script>
+</body>
+</html>
+        """
+        
+        self.web_view.setHtml(html_content)
+    
+    def update_equation(self, latex):
+        """Update the displayed equation"""
+        self.equation_latex = latex
+        self.web_view.page().runJavaScript(f"MQ.StaticMath(document.getElementById('math-display')).latex('{latex}');")
 
 class GraphWidget(QWidget):
     """Widget to display polynomial graphs"""
@@ -66,6 +156,76 @@ class GraphWidget(QWidget):
         
         self.canvas.draw()
     
+    def plot_quadratic(self, a, b, c):
+        """Plot quadratic function y = ax² + bx + c with specific requirements"""
+        self.figure.clear()
+        ax = self.figure.add_subplot(111, facecolor='#000000')
+        
+        # Calculate vertex
+        vertex_x = -b / (2 * a)
+        vertex_y = a * vertex_x**2 + b * vertex_x + c
+        
+        # Standard parabola y = x² has points (-1,1), (0,0), (1,1)
+        # Transform these points to our parabola
+        # For y = a(x - h)² + k where (h,k) is vertex
+        # We need to find how (-1,1), (0,0), (1,1) transform
+        
+        # Our parabola: y = ax² + bx + c = a(x - vertex_x)² + vertex_y
+        # So compared to y = x², we have horizontal shift vertex_x, vertical scaling a, vertical shift vertex_y
+        
+        # Transform (-1,1): x = vertex_x - 1, y = vertex_y + a
+        point_neg1_x = vertex_x - 1
+        point_neg1_y = vertex_y + a
+        
+        # Transform (0,0): x = vertex_x, y = vertex_y (this is the vertex)
+        point_0_x = vertex_x
+        point_0_y = vertex_y
+        
+        # Transform (1,1): x = vertex_x + 1, y = vertex_y + a  
+        point_1_x = vertex_x + 1
+        point_1_y = vertex_y + a
+        
+        # Set x bounds: 3 left of (-1,1) point and 3 right of (1,1) point
+        x_min = point_neg1_x - 3
+        x_max = point_1_x + 3
+        
+        # Set y bounds based on direction of opening
+        if a > 0:  # Opens upward
+            y_min = vertex_y - 4  # 4 below vertex
+            y_max = max(point_neg1_y, point_1_y) + 4  # 4 above the (-1,1)/(1,1) points
+        else:  # Opens downward
+            y_min = min(point_neg1_y, point_1_y) - 4  # 4 below the (-1,1)/(1,1) points
+            y_max = vertex_y + 4  # 4 above vertex
+        
+        # Generate x values for plotting
+        x_vals = np.linspace(x_min, x_max, 1000)
+        y_vals = a * x_vals**2 + b * x_vals + c
+        
+        # Plot the parabola
+        ax.plot(x_vals, y_vals, color='white', linewidth=2)
+        
+        # Mark the special points
+        ax.plot([point_neg1_x, point_0_x, point_1_x], 
+                [point_neg1_y, point_0_y, point_1_y], 
+                'ro', markersize=4, alpha=0.7)
+        
+        # Set limits (2:1 ratio)
+        ax.set_xlim(x_min, x_max)
+        ax.set_ylim(y_min, y_max)
+        
+        # Add axes
+        ax.axhline(y=0, color='white', linewidth=0.5, alpha=0.7)
+        ax.axvline(x=0, color='white', linewidth=0.5, alpha=0.7)
+        
+        # Style the plot
+        ax.tick_params(colors='white')
+        ax.spines['bottom'].set_color('white')
+        ax.spines['top'].set_color('white') 
+        ax.spines['right'].set_color('white')
+        ax.spines['left'].set_color('white')
+        
+        self.canvas.draw()
+    
     def plot_polynomial(self, coefficients, degree):
         """Plot polynomial of degree 3 or higher"""
         self.figure.clear()
@@ -101,52 +261,97 @@ class GraphWidget(QWidget):
         for cp in critical_points:
             critical_values.append(poly_func(cp))
         
-        # Find global min and max from critical points
-        if critical_values:
-            local_min = min(critical_values)
-            local_max = max(critical_values)
+        if degree == 4:
+            # Special handling for quartic (degree 4)
+            if critical_values:
+                local_min = min(critical_values)
+                local_max = max(critical_values)
+                
+                # Find x bounds where function exceeds the y-range [local_min, local_max]
+                def find_x_bounds():
+                    x_min_bound = None
+                    x_max_bound = None
+                    
+                    # Search from critical points outward
+                    if critical_points:
+                        leftmost_critical = min(critical_points)
+                        rightmost_critical = max(critical_points)
+                        
+                        # Search left from leftmost critical point
+                        for x in np.arange(leftmost_critical, leftmost_critical - 20, -0.1):
+                            y = poly_func(x)
+                            if y < local_min or y > local_max:
+                                x_min_bound = x
+                                break
+                        
+                        # Search right from rightmost critical point  
+                        for x in np.arange(rightmost_critical, rightmost_critical + 20, 0.1):
+                            y = poly_func(x)
+                            if y < local_min or y > local_max:
+                                x_max_bound = x
+                                break
+                    
+                    # Fallback bounds
+                    if x_min_bound is None:
+                        x_min_bound = -10
+                    if x_max_bound is None:
+                        x_max_bound = 10
+                        
+                    return x_min_bound, x_max_bound
+                
+                x_min, x_max = find_x_bounds()
+                y_min = local_min
+                y_max = local_max
+            else:
+                # Fallback if no critical points found
+                x_min, x_max = -10, 10
+                y_min, y_max = -10, 10
         else:
-            # If no critical points, use a default range
-            local_min, local_max = -10, 10
-        
-        # Add some padding to the y-range
-        y_range = local_max - local_min
-        if y_range < 1:
-            y_range = 1
-        padding = y_range * 0.1
-        y_min = local_min - padding
-        y_max = local_max + padding
-        
-        # Find x-bounds where function exceeds the local min/max range
-        def find_x_bound(direction):
-            """Find x where |f(x)| exceeds the local min/max range"""
-            search_start = 0
-            search_range = 1
+            # Original logic for degree 3
+            if critical_values:
+                local_min = min(critical_values)
+                local_max = max(critical_values)
+            else:
+                local_min, local_max = -10, 10
             
-            while search_range < 100:  # Prevent infinite loop
-                if direction > 0:  # searching to the right
-                    x_test = search_start + search_range
-                else:  # searching to the left
-                    x_test = search_start - search_range
-                
-                y_test = poly_func(x_test)
-                
-                # Check if y_test is outside the local min/max range
-                if y_test < local_min or y_test > local_max:
-                    return x_test
-                
-                search_range *= 1.5
+            # Add some padding to the y-range
+            y_range = local_max - local_min
+            if y_range < 1:
+                y_range = 1
+            padding = y_range * 0.1
+            y_min = local_min - padding
+            y_max = local_max + padding
             
-            # Fallback
-            return search_start + direction * 10
-        
-        # Find x bounds
-        x_min = find_x_bound(-1)  # search left
-        x_max = find_x_bound(1)   # search right
-        
-        # Ensure reasonable bounds
-        x_min = max(x_min, -50)
-        x_max = min(x_max, 50)
+            # Find x-bounds where function exceeds the local min/max range
+            def find_x_bound(direction):
+                """Find x where |f(x)| exceeds the local min/max range"""
+                search_start = 0
+                search_range = 1
+                
+                while search_range < 100:  # Prevent infinite loop
+                    if direction > 0:  # searching to the right
+                        x_test = search_start + search_range
+                    else:  # searching to the left
+                        x_test = search_start - search_range
+                    
+                    y_test = poly_func(x_test)
+                    
+                    # Check if y_test is outside the local min/max range
+                    if y_test < local_min or y_test > local_max:
+                        return x_test
+                    
+                    search_range *= 1.5
+                
+                # Fallback
+                return search_start + direction * 10
+            
+            # Find x bounds
+            x_min = find_x_bound(-1)  # search left
+            x_max = find_x_bound(1)   # search right
+            
+            # Ensure reasonable bounds
+            x_min = max(x_min, -50)
+            x_max = min(x_max, 50)
         
         # Generate x values for plotting
         x_vals = np.linspace(x_min, x_max, 1000)
@@ -172,25 +377,6 @@ class GraphWidget(QWidget):
         
         self.canvas.draw()
     
-    def show_development_message(self):
-        """Show 'Still in development' message for quadratic functions"""
-        self.figure.clear()
-        ax = self.figure.add_subplot(111, facecolor='#000000')
-        
-        ax.text(0.5, 0.5, 'Still in development', 
-               horizontalalignment='center',
-               verticalalignment='center',
-               fontsize=24,
-               color='red',
-               weight='bold',
-               transform=ax.transAxes)
-        
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        ax.axis('off')
-        
-        self.canvas.draw()
-    
     def clear_graph(self):
         """Clear the graph"""
         self.figure.clear()
@@ -207,11 +393,14 @@ class RoundedWindow(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
+        painter.setRenderHint(QPainter.TextAntialiasing)  # Add text anti-aliasing
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)  # Smooth transforms
         brush = QBrush(QColor("#252525"))
         rect = QRectF(0, 0, self.width(), self.height())
         painter.setBrush(brush)
         painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(rect, 100, 100)
+        # Remove rounded corners by using drawRect instead of drawRoundedRect
+        painter.drawRect(rect)
 
     def initUI(self):
         # Create scroll area for content
@@ -251,98 +440,36 @@ class RoundedWindow(QWidget):
         # Position scroll area
         scroll_area.setGeometry(0, 0, self.width(), self.height())
 
-        # Equation parts with adjusted exponent positioning
-        self.equation_str = [
-            ("a<sub style='font-size:22px; position:relative; left:2px;'>n</sub>", False),
-            ("x<sup style='font-size:18px; position:relative; left:2px; bottom:18px;'>n</sup>", False),
-            (" + ", False),
-            ("a<sub style='font-size:22px; position:relative; left:2px;'>n-1</sub>", False),
-            ("x<sup style='font-size:18px; position:relative; left:2px; bottom:18px;'>n-1</sup>", False),
-            (" + ...", False)
-        ]
-        self.labels = []
-        font = QFont("Times New Roman", 32)
-        font.setStyleStrategy(QFont.PreferAntialias)
-
-        # Equation container
-        self.equation_container = QWidget(content_widget)
-        self.equation_container.setAttribute(Qt.WA_TranslucentBackground)
-        self.equation_container.setStyleSheet("background: transparent;")
-        self.equation_container.setFixedHeight(60)
-
-        # Custom label widths: 30px for a_n, x^n, and first +, 40px for a_{n-1}, x^{n-1}, and + ...
-        label_widths = [30, 30, 30, 40, 40, 40]
-        spacing = 0  # No additional spacing between labels
-        total_width = sum(label_widths)  # 30 + 30 + 30 + 40 + 40 + 40 = 210
-
-        for i, (part, _) in enumerate(self.equation_str):
-            label = QLabel(self.equation_container)
-            label.setText(f"<span style='color:white; font-family:\"Times New Roman\";'>{part}</span>")
-            label.setFont(font)
-            label.setTextFormat(Qt.RichText)
-            label.setAttribute(Qt.WA_TranslucentBackground)
-            label.setStyleSheet("background: transparent;")
-            label.setFixedHeight(60)
-            label.setFixedWidth(label_widths[i])
-            label.setAlignment(Qt.AlignCenter)
-            label.move(0, -50)
-            label.show()
-            self.labels.append(label)
-
-        container_x = (600 - total_width) // 2  # Use window width
-        container_y = 30
-        self.equation_container.setFixedWidth(total_width)
-        self.equation_container.move(container_x, container_y)
-
-        x = 0
-        for i, label in enumerate(self.labels):
-            label.move(x, -50)
-            x += label_widths[i] + spacing
-
-        self.label_animations = []
-        x = 0
-        for i, label in enumerate(self.labels):
-            start_pos = QPoint(x, -50)
-            end_pos = QPoint(x, 0)
-            anim = QPropertyAnimation(label, b"pos")
-            anim.setDuration(400)
-            anim.setStartValue(start_pos)
-            anim.setEndValue(end_pos)
-            anim.setEasingCurve(QEasingCurve.OutCubic)
-            self.label_animations.append(anim)
-            x += label_widths[i] + spacing
-
-        def start_label_anim(i):
-            self.label_animations[i].start()
-            # After last label animates in, show N= dropdown
-            if i == len(self.label_animations) - 1:
-                QTimer.singleShot(400, self.show_n_dropdown)
-
-        for i in range(len(self.label_animations)):
-            QTimer.singleShot(200 + i * 100, lambda i=i: start_label_anim(i))
-
-        # Add equation container to layout
-        self.layout.addWidget(self.equation_container, alignment=Qt.AlignCenter)
-
-        # Add Home button in the top right
+        # Add Home button in the top right - Fixed sizing
         self.home_button = QPushButton("Home", self)
-        self.home_button.setFont(QFont("Arial", 16, QFont.Bold))
+        # Create font with anti-aliasing hints
+        button_font = QFont("Arial", 16, QFont.Bold)
+        button_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.home_button.setFont(button_font)
         self.home_button.setStyleSheet("""
             QPushButton {
-            color: white;
-            background-color: #353535;
-            border: 1px solid #555;
-            border-radius: 8px;
-            padding: 6px 18px;
+                color: white;
+                background-color: #353535;
+                border: 1px solid #555;
+                border-radius: 0px;  /* Remove rounded corners */
+                padding: 8px 12px;   /* Adjusted padding */
+                text-align: center;
             }
             QPushButton:hover {
-            background-color: #555;
+                background-color: #555;
             }
         """)
-        self.home_button.setFixedSize(90, 38)
+        # Auto-size button to fit text properly
+        self.home_button.adjustSize()
+        self.home_button.setMinimumWidth(80)  # Ensure minimum width
         self.home_button.raise_()
         self.home_button.move(self.width() - self.home_button.width() - 20, 20)
         self.home_button.show()
+
+        # Replace the old equation display with MathQuill
+        self.equation_widget = MathQuillWidget(self, "a_n x^n + a_{n-1} x^{n-1} + \\cdots + a_1 x + a_0")
+        self.equation_widget.setFixedHeight(60)
+        self.layout.addWidget(self.equation_widget, alignment=Qt.AlignCenter)
 
         def home_transition():
             # Animate all widgets: slide right and fade out
@@ -383,6 +510,9 @@ class RoundedWindow(QWidget):
             QTimer.singleShot(420, launch_home)
 
         self.home_button.clicked.connect(home_transition)
+
+        # Show N dropdown after a short delay
+        QTimer.singleShot(1000, self.show_n_dropdown)
 
     def gcd(self, a, b):
         """Calculate greatest common divisor"""
@@ -593,19 +723,21 @@ class RoundedWindow(QWidget):
        
        n_label = QLabel("N =", self)
        n_font = QFont("Arial", 24, QFont.Bold)
+       n_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
        n_label.setFont(n_font)
        n_label.setStyleSheet("color: white; background: transparent;")
        n_label.adjustSize()
 
        self.combo = QComboBox(self)
        combo_font = QFont("Arial", 20, QFont.Bold)
+       combo_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
        self.combo.setFont(combo_font)
        self.combo.setStyleSheet("""
            QComboBox {
                color: white;
                background-color: #353535;
                border: 1px solid #555;
-               border-radius: 8px;
+               border-radius: 0px;  /* Remove rounded corners */
                padding: 2px 18px 2px 8px;
                min-width: 6em;
                font-weight: bold;
@@ -686,19 +818,22 @@ class RoundedWindow(QWidget):
        
        label = QLabel(label_text, self)
        font = QFont("Arial", 24, QFont.Bold)
+       font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
        label.setFont(font)
        label.setStyleSheet("color: white; background: transparent;")
        label.setTextFormat(Qt.RichText)
        label.adjustSize()
 
        input_field = QLineEdit(self)
-       input_field.setFont(QFont("Arial", 20, QFont.Bold))
+       input_font = QFont("Arial", 20, QFont.Bold)
+       input_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+       input_field.setFont(input_font)
        input_field.setStyleSheet("""
            QLineEdit {
                color: white;
                background-color: #353535;
                border: 1px solid #555;
-               border-radius: 8px;
+               border-radius: 0px;  /* Remove rounded corners */
                padding: 2px 8px;
                min-width: 6em;
            }
@@ -726,7 +861,9 @@ class RoundedWindow(QWidget):
     def create_results_label(self):
        """Create the results display label"""
        self.results_label = QLabel("", self)
-       self.results_label.setFont(QFont("Arial", 16, QFont.Bold))
+       results_font = QFont("Arial", 16, QFont.Bold)
+       results_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+       self.results_label.setFont(results_font)
        self.results_label.setStyleSheet("color: white; background: transparent;")
        self.results_label.setAlignment(Qt.AlignLeft)
        self.results_label.setTextFormat(Qt.RichText)
@@ -987,9 +1124,9 @@ class RoundedWindow(QWidget):
                else:
                    results.append("&nbsp;&nbsp;lim<sub>x→±∞</sub> f(x) = -∞")
 
-               # Show "Still in development" message for quadratic graph
+               # Plot the quadratic function (now working!)
                if self.graph_widget:
-                   self.graph_widget.show_development_message()
+                   self.graph_widget.plot_quadratic(a2, a1, c)
 
        else:
            results = []
@@ -1112,7 +1249,7 @@ class RoundedWindow(QWidget):
                else:
                    results.append("&nbsp;&nbsp;lim<sub>x→±∞</sub> f(x) = -∞")
 
-               # Plot the quartic function
+               # Plot the quartic function (now with improved logic!)
                if self.graph_widget:
                    coefficients = [a4, a3, a2, a1, c]
                    self.graph_widget.plot_polynomial(coefficients, 4)
