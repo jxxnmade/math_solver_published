@@ -5,13 +5,19 @@ Yes, I'm begging
 
 # version_info
 Version 1.0.2
-Updates
-Formula display on polynomial page
-    Fully in view now
-    Still working on animations and removing the white box
-Enviroment setup button on home page
-    Updated dependancies installed in the virtual enviroment
-    Added "For developers only, use at your own risk!"
+
+# updates
+Universal
+    1.  Anti-aliasing on some text
+    2.  Rounded buttons
+    3.  Animations
+Polynomial page
+    1.  Polynomial formula is fully in view now
+    2.  N= dropdown on first load is buggy as fuck
+    3.  Some buttons overlap I think
+Home page
+    1.  Warning sign on virtual enviroment setup button now
+    2.  Less simultaneous installs, so demanding and less crashing
 Updates soon, enjoy
 
 # install_instructions

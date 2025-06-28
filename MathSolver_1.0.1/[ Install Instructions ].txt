@@ -1,6 +1,0 @@
-1. Right click the "installer.py" file and run it with python
-2. Maximize the installer window
-3. Press the "Start Installation" at the bottom left
-4. Use the ".bat" files to open the programs
-
-Updates coming soon!

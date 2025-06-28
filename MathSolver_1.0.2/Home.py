@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QGraphicsOpacityEffect
-from PyQt5.QtGui import QRegion
+from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt, QRect, QPropertyAnimation, QEasingCurve, QParallelAnimationGroup, QTimer
 
 from PyQt5.QtWidgets import QStackedLayout, QLabel, QProgressBar, QTextEdit
@@ -14,6 +14,7 @@ import glob
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 class DependencyInstaller:
     """Enhanced dependency detection and virtual environment setup"""
@@ -296,7 +297,7 @@ class DependencyInstaller:
             return True  # Continue even if pip upgrade fails
     
     def install_dependencies(self, venv_path, dependencies, progress_callback=None):
-        """Install dependencies in the virtual environment with enhanced error handling"""
+        """Install dependencies in the virtual environment with reduced concurrency and delays"""
         paths = self.get_venv_paths(venv_path)
         
         if not os.path.exists(paths['pip']):
@@ -310,10 +311,10 @@ class DependencyInstaller:
         success_count = 0
         failed_packages = []
         
-        for dep in dependencies:
+        for i, dep in enumerate(dependencies):
             try:
                 if progress_callback:
-                    progress_callback(f"Installing {dep}...")
+                    progress_callback(f"Installing {dep} ({i+1}/{len(dependencies)})...")
                 
                 # Use --no-cache-dir to avoid cache issues
                 result = subprocess.run(
@@ -331,6 +332,12 @@ class DependencyInstaller:
                     if progress_callback:
                         progress_callback(f"❌ Failed to install {dep}: {result.stderr}")
                     failed_packages.append(dep)
+                
+                # Add delay between installations to reduce resource usage
+                if i < len(dependencies) - 1:  # Don't delay after the last package
+                    if progress_callback:
+                        progress_callback(f"Waiting before next installation...")
+                    time.sleep(2)  # 2 second delay between packages
             
             except subprocess.TimeoutExpired:
                 if progress_callback:
@@ -418,10 +425,6 @@ class InstallationWindow(QWidget):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowFlags(Qt.Window | Qt.MSWindowsFixedSizeDialogHint)
         
-        # Create circular mask
-        region = QRegion(QRect(0, 0, 600, 500), QRegion.Ellipse)
-        self.setMask(region)
-        
         self.setStyleSheet("""
             QWidget {
                 background-color: #252525;
@@ -475,8 +478,11 @@ class InstallationWindow(QWidget):
         layout.setContentsMargins(50, 50, 50, 50)
         layout.setSpacing(15)
         
-        # Title
+        # Title with anti-aliasing
         title = QLabel("Dependency Installation & Virtual Environment Setup")
+        title_font = QFont("Arial", 18, QFont.Bold)
+        title_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        title.setFont(title_font)
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("font-size: 18px; font-weight: bold; margin-bottom: 15px;")
         layout.addWidget(title)
@@ -497,12 +503,18 @@ class InstallationWindow(QWidget):
         
         # Close button (initially disabled)
         self.close_button = QPushButton("Close")
+        close_font = QFont("Arial", 14, QFont.Bold)
+        close_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.close_button.setFont(close_font)
         self.close_button.setEnabled(False)
         self.close_button.clicked.connect(self.close)
         button_layout.addWidget(self.close_button)
         
         # Open folder button
         self.open_folder_button = QPushButton("Open Installation Folder")
+        folder_font = QFont("Arial", 14, QFont.Bold)
+        folder_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.open_folder_button.setFont(folder_font)
         self.open_folder_button.setEnabled(False)
         self.open_folder_button.clicked.connect(self.open_folder)
         button_layout.addWidget(self.open_folder_button)
@@ -589,8 +601,7 @@ class AnimatedStackedWindow(QWidget):
         """)
         self.setWindowFlags(Qt.Window | Qt.MSWindowsFixedSizeDialogHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        region = QRegion(QRect(0, 0, 500, 500), QRegion.Ellipse)
-        self.setMask(region)
+        # REMOVED: Circle cutout - no longer using QRegion mask
 
         self.stacked_layout = QStackedLayout()
         self.setLayout(self.stacked_layout)
@@ -609,9 +620,24 @@ class AnimatedStackedWindow(QWidget):
         self.home_animations = []
 
         btn_zeroes = QPushButton("Find zeroes")
+        btn_zeroes_font = QFont("Arial", 24, QFont.Bold)
+        btn_zeroes_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        btn_zeroes.setFont(btn_zeroes_font)
+        
         btn_integration = QPushButton("Integration")
+        btn_integration_font = QFont("Arial", 24, QFont.Bold)
+        btn_integration_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        btn_integration.setFont(btn_integration_font)
+        
         btn_credits = QPushButton("Credits")
+        btn_credits_font = QFont("Arial", 24, QFont.Bold)
+        btn_credits_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        btn_credits.setFont(btn_credits_font)
+        
         btn_install_deps = QPushButton("Setup Environment")
+        btn_install_deps_font = QFont("Arial", 18, QFont.Bold)
+        btn_install_deps_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        btn_install_deps.setFont(btn_install_deps_font)
         btn_install_deps.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
@@ -655,30 +681,45 @@ class AnimatedStackedWindow(QWidget):
         self.credits_animations = []
 
         label_title = QLabel("Credits")
+        title_font = QFont("Arial", 36, QFont.Bold)
+        title_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        label_title.setFont(title_font)
         label_title.setAlignment(Qt.AlignCenter)
         label_title.setStyleSheet("QLabel { font-size: 36px; margin-bottom: 2px; }")
         self.credits_layout.addWidget(label_title)
         self.credits_buttons.append(label_title)
 
         label_prog = QLabel("Programming by Jaxson Morrow")
+        prog_font = QFont("Arial", 24, QFont.Bold)
+        prog_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        label_prog.setFont(prog_font)
         label_prog.setAlignment(Qt.AlignCenter)
         label_prog.setStyleSheet("QLabel { font-size: 24px; margin-bottom: 2px; }")
         self.credits_layout.addWidget(label_prog)
         self.credits_buttons.append(label_prog)
 
         label_instagram = QLabel("@jxxnmade on Instagram,")
+        instagram_font = QFont("Arial", 20, QFont.Bold)
+        instagram_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        label_instagram.setFont(instagram_font)
         label_instagram.setAlignment(Qt.AlignCenter)
         label_instagram.setStyleSheet("QLabel { font-size: 20px; margin-bottom: 2px; }")
         self.credits_layout.addWidget(label_instagram)
         self.credits_buttons.append(label_instagram)
 
         label_socials = QLabel("Twitter, Tiktok, and Github")
+        socials_font = QFont("Arial", 20, QFont.Bold)
+        socials_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        label_socials.setFont(socials_font)
         label_socials.setAlignment(Qt.AlignCenter)
         label_socials.setStyleSheet("QLabel { font-size: 20px; margin-bottom: 2px; }")
         self.credits_layout.addWidget(label_socials)
         self.credits_buttons.append(label_socials)
 
         self.btn_back = QPushButton("Back")
+        back_font = QFont("Arial", 24, QFont.Bold)
+        back_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.btn_back.setFont(back_font)
         self.credits_layout.addWidget(self.btn_back)
         self.credits_buttons.append(self.btn_back)
 
@@ -687,15 +728,106 @@ class AnimatedStackedWindow(QWidget):
             btn.setGraphicsEffect(opacity_effect)
             opacity_effect.setOpacity(0)
 
+        # Warning Page
+        self.warning_widget = QWidget()
+        self.warning_layout = QVBoxLayout()
+        self.warning_layout.setAlignment(Qt.AlignCenter)
+        self.warning_layout.setSpacing(20)
+        self.warning_widget.setLayout(self.warning_layout)
+
+        self.warning_buttons = []
+        self.warning_animations = []
+
+        warning_title = QLabel("Warning")
+        warning_title_font = QFont("Arial", 36, QFont.Bold)
+        warning_title_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        warning_title.setFont(warning_title_font)
+        warning_title.setAlignment(Qt.AlignCenter)
+        warning_title.setStyleSheet("QLabel { font-size: 36px; margin-bottom: 20px; color: #FF6B6B; }")
+        self.warning_layout.addWidget(warning_title)
+        self.warning_buttons.append(warning_title)
+
+        warning_text = QLabel("This sets up a virtual environment and installs the dependencies in it. May cause instabilities. For developer use only, use at your own risk.")
+        warning_text_font = QFont("Arial", 16, QFont.Bold)
+        warning_text_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        warning_text.setFont(warning_text_font)
+        warning_text.setAlignment(Qt.AlignCenter)
+        warning_text.setWordWrap(True)
+        warning_text.setStyleSheet("QLabel { font-size: 16px; margin: 20px; color: #FFA500; padding: 20px; }")
+        self.warning_layout.addWidget(warning_text)
+        self.warning_buttons.append(warning_text)
+
+        # Warning buttons
+        warning_button_layout = QVBoxLayout()
+        warning_button_layout.setSpacing(10)
+
+        self.btn_proceed = QPushButton("Proceed")
+        proceed_font = QFont("Arial", 20, QFont.Bold)
+        proceed_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.btn_proceed.setFont(proceed_font)
+        self.btn_proceed.setStyleSheet("""
+            QPushButton {
+                background-color: #FF6B6B;
+                color: white;
+                font-family: Arial;
+                font-weight: bold;
+                font-size: 20px;
+                border: none;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 12px 20px;
+            }
+            QPushButton:hover {
+                background-color: #FF5252;
+            }
+        """)
+        warning_button_layout.addWidget(self.btn_proceed)
+        self.warning_buttons.append(self.btn_proceed)
+
+        self.btn_cancel = QPushButton("Cancel")
+        cancel_font = QFont("Arial", 20, QFont.Bold)
+        cancel_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
+        self.btn_cancel.setFont(cancel_font)
+        self.btn_cancel.setStyleSheet("""
+            QPushButton {
+                background-color: #4CAF50;
+                color: white;
+                font-family: Arial;
+                font-weight: bold;
+                font-size: 20px;
+                border: none;
+                border-radius: 8px;
+                margin: 5px;
+                padding: 12px 20px;
+            }
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+        """)
+        warning_button_layout.addWidget(self.btn_cancel)
+        self.warning_buttons.append(self.btn_cancel)
+
+        self.warning_layout.addLayout(warning_button_layout)
+
+        for btn in self.warning_buttons:
+            opacity_effect = QGraphicsOpacityEffect(btn)
+            btn.setGraphicsEffect(opacity_effect)
+            opacity_effect.setOpacity(0)
+
+        # Add all widgets to stacked layout
         self.stacked_layout.addWidget(self.home_widget)
         self.stacked_layout.addWidget(self.credits_widget)
+        self.stacked_layout.addWidget(self.warning_widget)
         self.stacked_layout.setCurrentWidget(self.home_widget)
 
         QTimer.singleShot(100, self.animate_home_in)
 
+        # Connect buttons
         btn_credits.clicked.connect(self.transition_to_credits)
         self.btn_back.clicked.connect(self.transition_to_home)
-        btn_install_deps.clicked.connect(self.install_dependencies)
+        btn_install_deps.clicked.connect(self.transition_to_warning)
+        self.btn_proceed.clicked.connect(self.install_dependencies)
+        self.btn_cancel.clicked.connect(self.transition_to_home)
 
     def install_dependencies(self):
         """Handle comprehensive dependency installation"""
@@ -733,7 +865,7 @@ class AnimatedStackedWindow(QWidget):
         self.installer = installer
         self.dependencies = dependencies
         
-        # Use QTimer to run installation steps
+        # Use QTimer to run installation steps with longer delays
         self.installation_steps = [
             ("create_venv",),
             ("install_deps",),
@@ -742,10 +874,10 @@ class AnimatedStackedWindow(QWidget):
         ]
         self.current_step = 0
         
-        QTimer.singleShot(1000, self.process_installation_step)
+        QTimer.singleShot(1500, self.process_installation_step)  # Increased delay
     
     def process_installation_step(self):
-        """Process installation steps one by one"""
+        """Process installation steps one by one with delays"""
         if self.current_step >= len(self.installation_steps):
             self.install_window.installation_complete(True, self.script_dir)
             return
@@ -802,7 +934,7 @@ class AnimatedStackedWindow(QWidget):
             self.install_window.update_status(f"❌ Error in step {step[0]}: {e}")
         
         self.current_step += 1
-        QTimer.singleShot(500, self.process_installation_step)
+        QTimer.singleShot(1000, self.process_installation_step)  # Increased delay between steps
 
     def run_script_with_venv(self, script_name):
         """Run a script using the virtual environment if it exists"""
@@ -956,17 +1088,94 @@ class AnimatedStackedWindow(QWidget):
             QTimer.singleShot(i * 80, group.start)
             self.credits_animations.append(group)
 
+    def animate_warning_in(self):
+        self.warning_animations = []
+        for i, btn in enumerate(self.warning_buttons):
+            btn_rect = btn.geometry()
+            parent_rect = btn.parentWidget().rect()
+            btn_size = btn.size()
+            centered_rect = QRect(
+                (parent_rect.width() - btn_size.width()) // 2,
+                btn_rect.top(),
+                btn_size.width(),
+                btn_size.height()
+            )
+            btn.setGeometry(centered_rect)
+            btn_rect = btn.geometry()
+            start_rect = QRect(btn_rect)
+            start_rect.moveLeft(btn_rect.left() - 200)
+
+            geom_anim = QPropertyAnimation(btn, b"geometry")
+            geom_anim.setDuration(700)
+            geom_anim.setStartValue(start_rect)
+            geom_anim.setEndValue(btn_rect)
+            geom_anim.setEasingCurve(QEasingCurve.OutQuart)
+
+            opacity_anim = QPropertyAnimation(btn.graphicsEffect(), b"opacity")
+            opacity_anim.setDuration(700)
+            opacity_anim.setStartValue(0)
+            opacity_anim.setEndValue(1)
+            opacity_anim.setEasingCurve(QEasingCurve.OutQuart)
+
+            group = QParallelAnimationGroup()
+            group.addAnimation(geom_anim)
+            group.addAnimation(opacity_anim)
+
+            QTimer.singleShot(i * 120, group.start)
+            self.warning_animations.append(group)
+
+    def animate_warning_out(self, callback=None):
+        self.warning_animations = []
+        for i, btn in enumerate(self.warning_buttons):
+            btn_rect = btn.geometry()
+            end_rect = QRect(btn_rect)
+            end_rect.moveLeft(btn_rect.left() - 200)
+
+            geom_anim = QPropertyAnimation(btn, b"geometry")
+            geom_anim.setDuration(500)
+            geom_anim.setStartValue(btn_rect)
+            geom_anim.setEndValue(end_rect)
+            geom_anim.setEasingCurve(QEasingCurve.InQuad)
+
+            opacity_anim = QPropertyAnimation(btn.graphicsEffect(), b"opacity")
+            opacity_anim.setDuration(500)
+            opacity_anim.setStartValue(1)
+            opacity_anim.setEndValue(0)
+            opacity_anim.setEasingCurve(QEasingCurve.InQuad)
+
+            group = QParallelAnimationGroup()
+            group.addAnimation(geom_anim)
+            group.addAnimation(opacity_anim)
+
+            if i == len(self.warning_buttons) - 1 and callback:
+                group.finished.connect(callback)
+
+            QTimer.singleShot(i * 80, group.start)
+            self.warning_animations.append(group)
+
     def transition_to_credits(self):
         def after_home_out():
             self.stacked_layout.setCurrentWidget(self.credits_widget)
             QTimer.singleShot(100, self.animate_credits_in)
         self.animate_home_out(after_home_out)
 
+    def transition_to_warning(self):
+        def after_home_out():
+            self.stacked_layout.setCurrentWidget(self.warning_widget)
+            QTimer.singleShot(100, self.animate_warning_in)
+        self.animate_home_out(after_home_out)
+
     def transition_to_home(self):
-        def after_credits_out():
+        current_widget = self.stacked_layout.currentWidget()
+        
+        def after_widget_out():
             self.stacked_layout.setCurrentWidget(self.home_widget)
             QTimer.singleShot(100, self.animate_home_in)
-        self.animate_credits_out(after_credits_out)
+        
+        if current_widget == self.credits_widget:
+            self.animate_credits_out(after_widget_out)
+        elif current_widget == self.warning_widget:
+            self.animate_warning_out(after_widget_out)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

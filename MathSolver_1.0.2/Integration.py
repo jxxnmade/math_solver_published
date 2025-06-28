@@ -17,7 +17,7 @@ from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout,
                              QTextEdit, QFrame)
 from PyQt5.QtGui import (QPainter, QBrush, QColor, QFont, QTextCursor, 
                          QTextCharFormat, QTextDocument, QPalette)
-from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, QPoint, QTimer, QEasingCurve, QUrl, pyqtSignal
+from PyQt5.QtCore import Qt, QRectF, QPropertyAnimation, QPoint, QTimer, QEasingCurve, QUrl, pyqtSignal, QRect, QParallelAnimationGroup
 from PyQt5.QtWebEngineWidgets import QWebEngineView, QWebEnginePage
 
 class MathDisplayWidget(QWidget):
@@ -33,7 +33,10 @@ class MathDisplayWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         self.setLayout(layout)
         
-        self.setStyleSheet("background: transparent;")
+        self.setStyleSheet("""
+            background: transparent;
+            border-radius: 8px;
+        """)
         
     def display_math(self, latex_expr, color='white', fontsize=16):
         """Display mathematical expression using LaTeX"""
@@ -456,13 +459,12 @@ class IntegrationWindow(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.Antialiasing)
-        painter.setRenderHint(QPainter.TextAntialiasing)  # Add text anti-aliasing
-        painter.setRenderHint(QPainter.SmoothPixmapTransform)  # Smooth transforms
+        painter.setRenderHint(QPainter.TextAntialiasing)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
         brush = QBrush(QColor("#252525"))
         rect = QRectF(0, 0, self.width(), self.height())
         painter.setBrush(brush)
         painter.setPen(Qt.NoPen)
-        # Remove rounded corners by using drawRect instead of drawRoundedRect
         painter.drawRect(rect)
 
     def initUI(self):
@@ -503,9 +505,8 @@ class IntegrationWindow(QWidget):
         # Position scroll area
         scroll_area.setGeometry(0, 0, self.width(), self.height())
 
-        # Add Home button in the top right - Fixed sizing
+        # Add Home button in the top right
         self.home_button = QPushButton("Home", self)
-        # Create font with anti-aliasing hints
         button_font = QFont("Arial", 16, QFont.Bold)
         button_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         self.home_button.setFont(button_font)
@@ -514,17 +515,16 @@ class IntegrationWindow(QWidget):
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 0px;  /* Remove rounded corners */
-                padding: 8px 12px;   /* Reduced padding */
+                border-radius: 8px;
+                padding: 8px 12px;
                 text-align: center;
             }
             QPushButton:hover {
                 background-color: #555;
             }
         """)
-        # Auto-size button to fit text properly
         self.home_button.adjustSize()
-        self.home_button.setMinimumWidth(80)  # Ensure minimum width
+        self.home_button.setMinimumWidth(80)
         self.home_button.raise_()
         self.home_button.move(self.width() - self.home_button.width() - 20, 20)
         self.home_button.show()
@@ -546,6 +546,62 @@ class IntegrationWindow(QWidget):
         # Add stretch to push content to top
         self.layout.addStretch()
 
+        # Animate initial elements
+        QTimer.singleShot(100, self.animate_initial_elements)
+
+    def animate_initial_elements(self):
+        """Animate initial UI elements on startup"""
+        elements = [self.home_button]
+        
+        # Find dropdown elements
+        for i in range(self.layout.count()):
+            item = self.layout.itemAt(i)
+            if item and item.layout():
+                for j in range(item.layout().count()):
+                    sub_item = item.layout().itemAt(j)
+                    if sub_item and sub_item.widget():
+                        elements.append(sub_item.widget())
+        
+        # Add integration container
+        elements.append(self.integration_container)
+        
+        animations = []
+        for i, element in enumerate(elements):
+            # Set up starting position
+            original_pos = element.pos()
+            start_pos = QPoint(original_pos.x() - 200, original_pos.y())
+            element.move(start_pos)
+            
+            # Set up opacity effect
+            opacity_effect = QGraphicsOpacityEffect()
+            element.setGraphicsEffect(opacity_effect)
+            opacity_effect.setOpacity(0)
+            
+            # Create position animation
+            pos_anim = QPropertyAnimation(element, b"pos")
+            pos_anim.setDuration(700)
+            pos_anim.setStartValue(start_pos)
+            pos_anim.setEndValue(original_pos)
+            pos_anim.setEasingCurve(QEasingCurve.OutQuart)
+            
+            # Create opacity animation
+            opacity_anim = QPropertyAnimation(opacity_effect, b"opacity")
+            opacity_anim.setDuration(700)
+            opacity_anim.setStartValue(0)
+            opacity_anim.setEndValue(1)
+            opacity_anim.setEasingCurve(QEasingCurve.OutQuart)
+            
+            # Group animations
+            group = QParallelAnimationGroup()
+            group.addAnimation(pos_anim)
+            group.addAnimation(opacity_anim)
+            
+            # Start with delay
+            QTimer.singleShot(i * 120, group.start)
+            animations.append(group)
+        
+        self.current_animations.extend(animations)
+
     def setup_dropdown(self):
         # Dropdown layout
         dropdown_layout = QHBoxLayout()
@@ -553,20 +609,20 @@ class IntegrationWindow(QWidget):
         
         type_label = QLabel("Integration Type:", self)
         type_font = QFont("Arial", 24, QFont.Bold)
-        type_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        type_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         type_label.setFont(type_font)
         type_label.setStyleSheet("color: white; background: transparent;")
         
         self.type_combo = QComboBox(self)
         combo_font = QFont("Arial", 20, QFont.Bold)
-        combo_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        combo_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         self.type_combo.setFont(combo_font)
         self.type_combo.setStyleSheet("""
             QComboBox {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 0px;  /* Remove rounded corners */
+                border-radius: 8px;
                 padding: 6px 18px;
                 min-width: 120px;
                 font-weight: bold;
@@ -575,6 +631,7 @@ class IntegrationWindow(QWidget):
                 background: #353535;
                 color: white;
                 selection-background-color: #454545;
+                border-radius: 8px;
             }
             QComboBox::drop-down {
                 border: none;
@@ -595,21 +652,16 @@ class IntegrationWindow(QWidget):
 
     def clear_integration_content(self):
         """Clear all widgets from integration container"""
-        # First, clear any ongoing animations
         self.current_animations.clear()
         
-        # Remove all widgets and their layouts
         while self.integration_layout.count():
             child = self.integration_layout.takeAt(0)
             if child.widget():
-                # Clear any graphics effects before deletion
                 child.widget().setGraphicsEffect(None)
                 child.widget().deleteLater()
             elif child.layout():
-                # Handle nested layouts
                 self.clear_layout(child.layout())
         
-        # Process pending deletions immediately
         QApplication.processEvents()
 
     def clear_layout(self, layout):
@@ -628,7 +680,7 @@ class IntegrationWindow(QWidget):
         
         message_label = QLabel("Select integration type")
         message_font = QFont("Arial", 28, QFont.Bold)
-        message_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        message_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         message_label.setFont(message_font)
         message_label.setStyleSheet("color: white; background: transparent;")
         message_label.setAlignment(Qt.AlignCenter)
@@ -647,22 +699,19 @@ class IntegrationWindow(QWidget):
         # Integral symbol
         integral_symbol = QLabel("∫")
         integral_font = QFont("Times New Roman", 48, QFont.Bold)
-        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)
         integral_symbol.setFont(integral_font)
         integral_symbol.setStyleSheet("color: white; background: transparent;")
         
         # Function input with MathQuill
         self.function_input = MathQuillWidget(self.integration_container, "Enter function (e.g., x^2, sin(x), e^x)")
         self.function_input.setFixedWidth(350)
-        
-        # Connect to calculation with debug
         self.function_input.mathChanged.connect(self.calculate_indefinite_integral)
-        print("Connected indefinite integral calculation")  # Debug
         
         # dx label
         dx_label = QLabel("dx")
         dx_font = QFont("Times New Roman", 24, QFont.Bold)
-        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)
         dx_label.setFont(dx_font)
         dx_label.setStyleSheet("color: white; background: transparent;")
         
@@ -672,7 +721,7 @@ class IntegrationWindow(QWidget):
         
         self.integration_layout.addLayout(integral_layout)
         
-        # Results area with better spacing
+        # Results area
         self.results_widget = QWidget()
         self.results_widget.setStyleSheet("background: transparent;")
         self.results_layout = QVBoxLayout(self.results_widget)
@@ -684,22 +733,29 @@ class IntegrationWindow(QWidget):
         self.antiderivative_display.setFixedHeight(80)
         self.antiderivative_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
-        # Add spacing above the result
         self.results_layout.addSpacing(40)
         self.results_layout.addWidget(self.antiderivative_display)
         
         # Method label
         self.method_label = QLabel("")
         method_font = QFont("Arial", 16, QFont.Bold)
-        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         self.method_label.setFont(method_font)
-        self.method_label.setStyleSheet("color: #87CEEB; background: transparent; margin: 10px;")
+        self.method_label.setStyleSheet("""
+            color: #87CEEB; 
+            background: transparent; 
+            margin: 10px;
+            border-radius: 8px;
+            padding: 8px;
+        """)
         self.method_label.setAlignment(Qt.AlignCenter)
         self.method_label.setWordWrap(True)
         
         self.results_layout.addWidget(self.method_label)
-        
         self.integration_layout.addWidget(self.results_widget)
+        
+        # Animate elements individually
+        QTimer.singleShot(50, lambda: self.animate_integral_elements([integral_symbol, self.function_input, dx_label, self.results_widget]))
 
     def show_definite_integration(self):
         """Show definite integration interface"""
@@ -719,19 +775,19 @@ class IntegrationWindow(QWidget):
         lower_layout = QHBoxLayout()
         lower_label = QLabel("Lower bound:")
         lower_font = QFont("Arial", 16, QFont.Bold)
-        lower_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        lower_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         lower_label.setFont(lower_font)
         lower_label.setStyleSheet("color: white; background: transparent;")
         self.lower_bound_input = QLineEdit()
         bounds_font = QFont("Arial", 16)
-        bounds_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        bounds_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         self.lower_bound_input.setFont(bounds_font)
         self.lower_bound_input.setStyleSheet("""
             QLineEdit {
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 0px;  /* Remove rounded corners */
+                border-radius: 8px;
                 padding: 4px 8px;
                 max-width: 80px;
             }
@@ -744,7 +800,7 @@ class IntegrationWindow(QWidget):
         upper_layout = QHBoxLayout()
         upper_label = QLabel("Upper bound:")
         upper_font = QFont("Arial", 16, QFont.Bold)
-        upper_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        upper_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         upper_label.setFont(upper_font)
         upper_label.setStyleSheet("color: white; background: transparent;")
         self.upper_bound_input = QLineEdit()
@@ -754,7 +810,7 @@ class IntegrationWindow(QWidget):
                 color: white;
                 background-color: #353535;
                 border: 1px solid #555;
-                border-radius: 0px;  /* Remove rounded corners */
+                border-radius: 8px;
                 padding: 4px 8px;
                 max-width: 80px;
             }
@@ -775,7 +831,7 @@ class IntegrationWindow(QWidget):
         # Integral symbol
         integral_symbol = QLabel("∫")
         integral_font = QFont("Times New Roman", 48, QFont.Bold)
-        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        integral_font.setStyleHint(QFont.Times, QFont.PreferAntialias)
         integral_symbol.setFont(integral_font)
         integral_symbol.setStyleSheet("color: white; background: transparent;")
         
@@ -783,12 +839,11 @@ class IntegrationWindow(QWidget):
         self.definite_function_input = MathQuillWidget(self.integration_container, "Enter function (e.g., x^2, sin(x), e^x)")
         self.definite_function_input.setFixedWidth(350)
         self.definite_function_input.mathChanged.connect(self.calculate_definite_integral)
-        print("Connected definite integral calculation")  # Debug
         
         # dx label
         dx_label = QLabel("dx")
         dx_font = QFont("Times New Roman", 24, QFont.Bold)
-        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)  # Anti-aliasing
+        dx_font.setStyleHint(QFont.Times, QFont.PreferAntialias)
         dx_label.setFont(dx_font)
         dx_label.setStyleSheet("color: white; background: transparent;")
         
@@ -799,7 +854,7 @@ class IntegrationWindow(QWidget):
         integral_layout.addLayout(main_integral_layout)
         self.integration_layout.addLayout(integral_layout)
         
-        # Results area for definite integration with better spacing
+        # Results area for definite integration
         self.definite_results_widget = QWidget()
         self.definite_results_widget.setStyleSheet("background: transparent;")
         self.definite_results_layout = QVBoxLayout(self.definite_results_widget)
@@ -811,22 +866,71 @@ class IntegrationWindow(QWidget):
         self.definite_result_display.setFixedHeight(80)
         self.definite_result_display.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
-        # Add spacing above the result
         self.definite_results_layout.addSpacing(40)
         self.definite_results_layout.addWidget(self.definite_result_display)
         
         # Method label for definite
         self.definite_method_label = QLabel("")
         method_font = QFont("Arial", 16, QFont.Bold)
-        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)  # Anti-aliasing
+        method_font.setStyleHint(QFont.SansSerif, QFont.PreferAntialias)
         self.definite_method_label.setFont(method_font)
-        self.definite_method_label.setStyleSheet("color: #87CEEB; background: transparent; margin: 10px;")
+        self.definite_method_label.setStyleSheet("""
+            color: #87CEEB; 
+            background: transparent; 
+            margin: 10px;
+            border-radius: 8px;
+            padding: 8px;
+        """)
         self.definite_method_label.setAlignment(Qt.AlignCenter)
         self.definite_method_label.setWordWrap(True)
         
         self.definite_results_layout.addWidget(self.definite_method_label)
-        
         self.integration_layout.addWidget(self.definite_results_widget)
+        
+        # Animate bounds first, then integral elements
+        bounds_elements = [lower_label, self.lower_bound_input, upper_label, self.upper_bound_input]
+        QTimer.singleShot(50, lambda: self.animate_integral_elements(bounds_elements))
+        QTimer.singleShot(300, lambda: self.animate_integral_elements([integral_symbol, self.definite_function_input, dx_label, self.definite_results_widget]))
+
+    def animate_integral_elements(self, elements):
+        """Animate integral elements individually"""
+        animations = []
+        
+        for i, element in enumerate(elements):
+            # Set up starting position
+            original_pos = element.pos()
+            start_pos = QPoint(original_pos.x() - 200, original_pos.y())
+            element.move(start_pos)
+            
+            # Set up opacity effect
+            opacity_effect = QGraphicsOpacityEffect()
+            element.setGraphicsEffect(opacity_effect)
+            opacity_effect.setOpacity(0)
+            
+            # Create position animation
+            pos_anim = QPropertyAnimation(element, b"pos")
+            pos_anim.setDuration(700)
+            pos_anim.setStartValue(start_pos)
+            pos_anim.setEndValue(original_pos)
+            pos_anim.setEasingCurve(QEasingCurve.OutQuart)
+            
+            # Create opacity animation
+            opacity_anim = QPropertyAnimation(opacity_effect, b"opacity")
+            opacity_anim.setDuration(700)
+            opacity_anim.setStartValue(0)
+            opacity_anim.setEndValue(1)
+            opacity_anim.setEasingCurve(QEasingCurve.OutQuart)
+            
+            # Group animations
+            group = QParallelAnimationGroup()
+            group.addAnimation(pos_anim)
+            group.addAnimation(opacity_anim)
+            
+            # Start with delay
+            QTimer.singleShot(i * 120, group.start)
+            animations.append(group)
+        
+        self.current_animations.extend(animations)
 
     def handle_type_selection(self, value):
         """Handle integration type selection with smooth transitions"""
@@ -839,10 +943,8 @@ class IntegrationWindow(QWidget):
 
     def animate_out_and_show(self, show_method):
         """Animate current content out, then show new content"""
-        # Clear any existing animations
         self.current_animations.clear()
         
-        # Get all current widgets in the integration container
         widgets_to_animate = []
         for i in range(self.integration_layout.count()):
             item = self.integration_layout.itemAt(i)
@@ -850,23 +952,19 @@ class IntegrationWindow(QWidget):
                 widgets_to_animate.append(item.widget())
         
         if not widgets_to_animate:
-            # No current content, show new content immediately
             show_method()
             return
         
-        # Create fade out animations for current widgets
         animations = []
         for widget in widgets_to_animate:
-            # Remove any existing graphics effect first
             widget.setGraphicsEffect(None)
             
-            # Create new opacity effect
             opacity_effect = QGraphicsOpacityEffect()
             widget.setGraphicsEffect(opacity_effect)
             opacity_effect.setOpacity(1.0)
             
             fade_out = QPropertyAnimation(opacity_effect, b"opacity")
-            fade_out.setDuration(200)  # Reduced duration for snappier feel
+            fade_out.setDuration(200)
             fade_out.setStartValue(1.0)
             fade_out.setEndValue(0.0)
             fade_out.setEasingCurve(QEasingCurve.InCubic)
@@ -874,72 +972,20 @@ class IntegrationWindow(QWidget):
             animations.append(fade_out)
             fade_out.start()
         
-        # Store animations to prevent garbage collection
         self.current_animations = animations
         
-        # After fade out completes, clear content and show new content
         def on_fade_out_complete():
-            # Force clear all content immediately
             self.clear_integration_content()
-            # Show new content
             show_method()
-            # Animate in new content
-            QTimer.singleShot(50, self.animate_in_new_content)
         
-        # Connect the last animation to the completion handler
         if animations:
             animations[-1].finished.connect(on_fade_out_complete)
-
-    def animate_in_new_content(self):
-        """Animate new content in with fade effect"""
-        # Get all new widgets in the integration container
-        widgets_to_animate = []
-        for i in range(self.integration_layout.count()):
-            item = self.integration_layout.itemAt(i)
-            if item and item.widget():
-                widgets_to_animate.append(item.widget())
-        
-        if not widgets_to_animate:
-            return
-        
-        # Create fade in animations for new widgets
-        fade_in_animations = []
-        for widget in widgets_to_animate:
-            # Remove any existing effect
-            widget.setGraphicsEffect(None)
-            
-            # Create opacity effect
-            opacity_effect = QGraphicsOpacityEffect()
-            widget.setGraphicsEffect(opacity_effect)
-            opacity_effect.setOpacity(0.0)
-            
-            fade_in = QPropertyAnimation(opacity_effect, b"opacity")
-            fade_in.setDuration(200)  # Reduced duration
-            fade_in.setStartValue(0.0)
-            fade_in.setEndValue(1.0)
-            fade_in.setEasingCurve(QEasingCurve.OutCubic)
-            
-            fade_in_animations.append(fade_in)
-            fade_in.start()
-        
-        # Store fade in animations
-        self.current_animations.extend(fade_in_animations)
-        
-        # After fade in completes, remove the opacity effects
-        def cleanup_effects():
-            for widget in widgets_to_animate:
-                if widget and not widget.isHidden():
-                    widget.setGraphicsEffect(None)
-        
-        if fade_in_animations:
-            fade_in_animations[-1].finished.connect(cleanup_effects)
 
     def determine_integration_method(self, expr, result):
         """Determine the integration method used"""
         x = symbols('x')
         expr_str = str(expr)
         
-        # Check for common patterns
         if 'sin' in expr_str or 'cos' in expr_str or 'tan' in expr_str:
             return "Trigonometric Integration"
         elif 'exp' in expr_str or 'log' in expr_str or 'E' in expr_str:
@@ -953,7 +999,6 @@ class IntegrationWindow(QWidget):
         elif '/' in expr_str:
             return "Rational Function Integration"
         else:
-            # Try to detect substitution by checking if the derivative of inner function is present
             try:
                 if expr.has(sp.Function):
                     return "Substitution Method"
@@ -964,22 +1009,17 @@ class IntegrationWindow(QWidget):
 
     def parse_function(self, function_text):
         """Parse function text with support for both e^x and exp(x) notation and implicit multiplication"""
-        # Skip empty or whitespace-only expressions
         if not function_text or not function_text.strip():
             raise ValueError("Empty function expression")
             
-        # First handle implicit multiplication using the parsing method
         function_text = self.add_implicit_multiplication_for_parsing(function_text)
         
-        # Replace common notation for sympy
         function_text_sympy = function_text.replace('^', '**')
         function_text_sympy = function_text_sympy.replace('ln', 'log')
         
-        # Handle e^x notation - convert to exp() for sympy
         function_text_sympy = re.sub(r'\be\*\*\(([^)]+)\)', r'exp(\1)', function_text_sympy)
         function_text_sympy = re.sub(r'\be\*\*([a-zA-Z0-9_]+)', r'exp(\1)', function_text_sympy)
         
-        # Check if we have any remaining problematic patterns
         if '(' in function_text_sympy and ')' not in function_text_sympy:
             raise ValueError("Unmatched parentheses")
         if ')' in function_text_sympy and '(' not in function_text_sympy:
@@ -989,103 +1029,59 @@ class IntegrationWindow(QWidget):
 
     def add_implicit_multiplication_for_parsing(self, text):
         """Add explicit multiplication operators for implicit multiplication (for parsing only)"""
-        # Remove spaces first
         text = text.replace(' ', '')
         
-        # Handle number followed by variable: 3x -> 3*x
         text = re.sub(r'(\d)([a-zA-Z])', r'\1*\2', text)
-        
-        # Handle number followed by function: 3sin -> 3*sin, 2ln -> 2*ln
         text = re.sub(r'(\d)(sin|cos|tan|sec|csc|cot|ln|log|exp|sqrt)', r'\1*\2', text)
-        
-        # Handle number followed by opening parenthesis: 3( -> 3*(
         text = re.sub(r'(\d)\(', r'\1*(', text)
-        
-        # Handle variable followed by opening parenthesis: x( -> x*(
         text = re.sub(r'([a-zA-Z])\(', r'\1*(', text)
-        
-        # Handle closing parenthesis followed by variable: )x -> )*x
         text = re.sub(r'\)([a-zA-Z])', r')*\1', text)
-        
-        # Handle closing parenthesis followed by number: )3 -> )*3
         text = re.sub(r'\)(\d)', r')*\1', text)
-        
-        # Handle closing parenthesis followed by opening parenthesis: )( -> )*(
         text = re.sub(r'\)\(', r')*(', text)
-        
-        # Handle closing parenthesis followed by function: )sin -> )*sin
         text = re.sub(r'\)(sin|cos|tan|sec|csc|cot|ln|log|exp|sqrt)', r')*\1', text)
-        
-        # Handle variable followed by variable: xy -> x*y (but not for multi-letter functions)
-        # Be careful not to break function names like 'sin', 'cos', etc.
         text = re.sub(r'([a-zA-Z])([a-zA-Z])(?![a-zA-Z])', r'\1*\2', text)
-        
-        # Handle function followed by variable: sin(x)y -> sin(x)*y
         text = re.sub(r'(sin|cos|tan|sec|csc|cot|ln|log|exp|sqrt)\(([^)]+)\)([a-zA-Z])', r'\1(\2)*\3', text)
         
         return text
 
     def calculate_indefinite_integral(self, latex_expr, plain_text):
         """Calculate and display indefinite integral"""
-        print(f"calculate_indefinite_integral called with latex='{latex_expr}', plain_text='{plain_text}'")  # Debug
         try:
             function_text = self.function_input.get_raw_expression().strip()
-            print(f"Raw expression: '{function_text}'")  # Debug
             if not function_text or function_text.isspace():
                 self.antiderivative_display.clear_display()
                 self.method_label.setText("")
                 return
             
-            # Skip problematic intermediate states
             if '(' in function_text and ')' not in function_text:
-                print("Skipping incomplete expression with unmatched parentheses")
                 return
             if function_text.endswith('(') or function_text.endswith('^'):
-                print("Skipping incomplete expression")
                 return
                 
             x = symbols('x')
-            
-            # Parse the function with enhanced e^x support
             expr = self.parse_function(function_text)
-            print(f"Parsed expression: {expr}")  # Debug
-            
-            # Calculate the integral
             result = integrate(expr, x)
-            print(f"Integration result: {result}")  # Debug
-            
-            # Simplify the result
             result = simplify(result)
-            print(f"Simplified result: {result}")  # Debug
             
-            # Determine integration method
             method = self.determine_integration_method(expr, result)
             
-            # Display result using LaTeX with proper multiplication formatting
-            result_latex = latex(result)  # This now works because latex_expr parameter renamed
-            # Replace * with \cdot for better mathematical notation
+            result_latex = latex(result)
             result_latex = result_latex.replace('*', '\\cdot')
-            # Also handle any x symbols that might appear as multiplication
             result_latex = re.sub(r'\\times', r'\\cdot', result_latex)
             
             self.antiderivative_display.display_math(f"{result_latex} + C", color='#90EE90', fontsize=18)
-            
             self.method_label.setText(f"Method: {method}")
             
         except Exception as e:
-            print(f"Error in calculate_indefinite_integral: {e}")  # Debug
             self.antiderivative_display.display_math("Invalid \\ function \\ or \\ unable \\ to \\ integrate", color='#FF6B6B', fontsize=16)
             self.method_label.setText("")
 
     def calculate_definite_integral(self, *args):
         """Calculate and display definite integral"""
-        print(f"calculate_definite_integral called")  # Debug
         try:
             function_text = self.definite_function_input.get_raw_expression().strip()
             lower_text = self.lower_bound_input.text().strip()
             upper_text = self.upper_bound_input.text().strip()
-            
-            print(f"Definite integral - function: '{function_text}', lower: '{lower_text}', upper: '{upper_text}'")  # Debug
             
             if not function_text or function_text.isspace():
                 self.definite_result_display.clear_display()
@@ -1097,53 +1093,34 @@ class IntegrationWindow(QWidget):
                 self.definite_method_label.setText("")
                 return
             
-            # Skip problematic intermediate states
             if '(' in function_text and ')' not in function_text:
-                print("Skipping incomplete expression with unmatched parentheses")
                 return
             if function_text.endswith('(') or function_text.endswith('^'):
-                print("Skipping incomplete expression")
                 return
                 
             x = symbols('x')
-            
-            # Parse the function with enhanced e^x support
             expr = self.parse_function(function_text)
             lower_bound = sympify(lower_text)
             upper_bound = sympify(upper_text)
             
-            print(f"Parsed - expr: {expr}, lower: {lower_bound}, upper: {upper_bound}")  # Debug
-            
-            # Calculate the definite integral
             result = integrate(expr, (x, lower_bound, upper_bound))
-            print(f"Definite integration result: {result}")  # Debug
-            
-            # Simplify the result
             result = simplify(result)
-            print(f"Simplified definite result: {result}")  # Debug
             
-            # Determine integration method
             method = self.determine_integration_method(expr, result)
             
-            # Display result using LaTeX with proper multiplication formatting
-            result_latex = latex(result)  # Now safe from parameter conflict
-            # Replace * with \cdot for better mathematical notation
+            result_latex = latex(result)
             result_latex = result_latex.replace('*', '\\cdot')
-            # Also handle any x symbols that might appear as multiplication
             result_latex = re.sub(r'\\times', r'\\cdot', result_latex)
             
             self.definite_result_display.display_math(result_latex, color='#90EE90', fontsize=18)
-            
             self.definite_method_label.setText(f"Method: {method}")
             
         except Exception as e:
-            print(f"Error in calculate_definite_integral: {e}")  # Debug
             self.definite_result_display.display_math("Invalid \\ function, \\ bounds, \\ or \\ unable \\ to \\ integrate", color='#FF6B6B', fontsize=14)
             self.definite_method_label.setText("")
 
     def home_transition(self):
         """Transition back to home with animation"""
-        # Animate all widgets: slide right and fade out
         anims = []
         widgets = []
         for i in range(self.layout.count()):
@@ -1154,14 +1131,12 @@ class IntegrationWindow(QWidget):
         widgets.append(self.home_button)
         
         for w in widgets:
-            # Slide right
             pos_anim = QPropertyAnimation(w, b"pos")
             pos_anim.setDuration(400)
             pos_anim.setEasingCurve(QEasingCurve.InCubic)
             pos_anim.setStartValue(w.pos())
             pos_anim.setEndValue(w.pos() + QPoint(400, 0))
             
-            # Fade out
             opacity = QGraphicsOpacityEffect(w)
             w.setGraphicsEffect(opacity)
             opacity.setOpacity(1)
@@ -1175,7 +1150,6 @@ class IntegrationWindow(QWidget):
             fade_anim.start()
             anims.append((pos_anim, fade_anim))
         
-        # After animation, launch home and close
         def launch_home():
             subprocess.Popen(
                 [sys.executable, os.path.join(os.path.dirname(__file__), "Home.py")],
